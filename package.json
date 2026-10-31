@@ -1,0 +1,21 @@
+{
+  "name": "everyword-bagel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A real-time, same-room Anagrams game played on a circular bagel of Scrabble tiles.",
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test",
+    "fetch-dictionary": "node scripts/fetch-dictionary.mjs"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "qrcode": "^1.5.4",
+    "ws": "^8.22.0"
+  }
+}

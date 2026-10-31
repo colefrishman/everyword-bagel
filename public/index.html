@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#140d09" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Everyword Bagel — a real-time, same-room Anagrams game. Claim words from a circular bagel of Scrabble tiles, then steal your friends' words."
+    />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Everyword Bagel" />
+    <title>Everyword Bagel</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- Reusable bagel mark -->
+    <svg width="0" height="0" aria-hidden="true" style="position: absolute">
+      <defs>
+        <symbol id="bagel-logo" viewBox="0 0 64 64">
+          <circle cx="32" cy="33" r="24" fill="#d68b45" stroke="#77401b" stroke-width="2.5" />
+          <circle cx="32" cy="33" r="9.5" fill="#1a100b" stroke="#77401b" stroke-width="2" />
+          <path
+            d="M13 26c4-10 12-16 22-17"
+            fill="none"
+            stroke="#f5c985"
+            stroke-width="3"
+            stroke-linecap="round"
+            opacity=".55"
+          />
+          <g fill="#fff2ce">
+            <ellipse cx="18.5" cy="17.5" rx="1.2" ry="2.3" transform="rotate(-30 18.5 17.5)" />
+            <ellipse cx="27" cy="12.5" rx="1.2" ry="2.3" transform="rotate(-8 27 12.5)" />
+            <ellipse cx="38.5" cy="11.5" rx="1.2" ry="2.3" transform="rotate(16 38.5 11.5)" />
+            <ellipse cx="48" cy="17" rx="1.2" ry="2.3" transform="rotate(38 48 17)" />
+            <ellipse cx="53.5" cy="27" rx="1.2" ry="2.3" transform="rotate(68 53.5 27)" />
+            <ellipse cx="52" cy="39" rx="1.2" ry="2.3" transform="rotate(94 52 39)" />
+            <ellipse cx="44" cy="50" rx="1.2" ry="2.3" transform="rotate(128 44 50)" />
+            <ellipse cx="32" cy="53.5" rx="1.2" ry="2.3" transform="rotate(178 32 53.5)" />
+            <ellipse cx="20" cy="49" rx="1.2" ry="2.3" transform="rotate(220 20 49)" />
+            <ellipse cx="12" cy="38" rx="1.2" ry="2.3" transform="rotate(250 12 38)" />
+          </g>
+        </symbol>
+      </defs>
+    </svg>
+
+    <div class="app" id="app">
+      <header class="topbar">
+        <div class="brand">
+          <svg class="bagel-mark" aria-hidden="true"><use href="#bagel-logo"></use></svg>
+          <div class="brand-text">
+            <span>Everyword</span>
+            <strong>Bagel</strong>
+          </div>
+        </div>
+
+        <div class="status-cluster">
+          <div class="status-pill" id="phase-pill" data-phase="lobby">
+            <span class="status-dot"></span>
+            <span id="phase-label">Lobby</span>
+          </div>
+          <div class="stat" title="Face-down tiles left in the bagel">
+            <strong id="bag-left">0</strong>
+            <span>hidden</span>
+          </div>
+          <div class="stat" title="Face-up tiles available in the middle">
+            <strong id="pool-left">0</strong>
+            <span>up</span>
+          </div>
+          <div class="stat" title="Minimum letters per word">
+            <strong id="min-letters">4</strong>
+            <span>min</span>
+          </div>
+        </div>
+
+        <div class="top-actions">
+          <button class="icon-btn" id="invite-btn" type="button" title="Show the join link and QR code">
+            Invite
+          </button>
+          <button class="icon-btn" id="rules-btn" type="button" title="How to play">Rules</button>
+          <button class="icon-btn" id="sound-btn" type="button" aria-pressed="true" title="Toggle sound">
+            Sound
+          </button>
+          <span class="conn" id="conn-badge" data-state="connecting" title="Connecting to the table">
+            <span class="conn-dot"></span>
+            <span id="conn-text">Connecting</span>
+          </span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="table-column" aria-label="The bagel">
+          <div class="lobby-strip" id="lobby-strip" hidden></div>
+
+          <div class="reveal-strip" id="reveal-strip" hidden>
+            <span class="reveal-dot"></span>
+            <span id="reveal-text"></span>
+            <span class="reveal-hint" id="reveal-hint"></span>
+          </div>
+
+          <div class="board-shell">
+            <div class="board" id="board">
+              <div class="ring-guides" aria-hidden="true">
+                <span style="width: 84%"></span>
+                <span style="width: 66%"></span>
+                <span style="width: 48%"></span>
+                <span style="width: 30%"></span>
+              </div>
+              <div class="tiles" id="tiles"></div>
+              <div class="hole" id="hole">
+                <span class="hole-kicker">face up</span>
+                <strong id="hole-count">0</strong>
+                <span class="hole-unit">in the middle</span>
+                <span class="hole-min" id="hole-min">4+ letters</span>
+              </div>
+            </div>
+          </div>
+
+          <form class="wordbar" id="word-form" autocomplete="off" novalidate>
+            <div class="steal-banner" id="steal-banner" hidden>
+              <span class="steal-kicker" id="steal-kicker">Stealing</span>
+              <strong id="steal-word"></strong>
+              <span id="steal-from">from</span>
+              <strong id="steal-name"></strong>
+              <button type="button" class="ghost-btn small" id="clear-steal">Cancel</button>
+            </div>
+            <div class="word-row">
+              <label class="sr-only" for="word-input">Your word</label>
+              <input
+                id="word-input"
+                name="word"
+                type="text"
+                inputmode="text"
+                autocapitalize="characters"
+                autocomplete="off"
+                autocorrect="off"
+                spellcheck="false"
+                maxlength="32"
+                placeholder="Type a word..."
+                disabled
+              />
+              <button id="submit-btn" class="primary-btn" type="submit" disabled>Claim</button>
+            </div>
+            <div class="word-meta">
+              <span id="word-hint">Waiting for the round to start.</span>
+              <span class="tile-preview" id="tile-preview"></span>
+            </div>
+          </form>
+        </section>
+
+        <aside class="sidebar">
+          <section class="panel players-panel" aria-labelledby="players-title">
+            <div class="panel-head">
+              <h2 id="players-title">At the table</h2>
+              <span class="count-badge" id="player-count">0</span>
+            </div>
+            <div id="players" class="players"></div>
+          </section>
+
+          <section class="panel feed-panel" aria-labelledby="feed-title">
+            <div class="panel-head">
+              <h2 id="feed-title">The word on the table</h2>
+            </div>
+            <ol id="feed" class="feed"></ol>
+          </section>
+
+          <section class="panel host-panel" id="host-panel" aria-label="Round controls"></section>
+        </aside>
+      </main>
+    </div>
+
+    <!-- Join gate -->
+    <div class="overlay" id="join-overlay" role="dialog" aria-modal="true" aria-labelledby="join-title">
+      <div class="modal-card join-card">
+        <div class="join-head">
+          <svg class="bagel-mark large" aria-hidden="true"><use href="#bagel-logo"></use></svg>
+          <div>
+            <p class="eyebrow">A real-time word heist</p>
+            <h1 id="join-title">Everyword <em>Bagel</em></h1>
+            <p class="tagline">
+              All the tiles start face down in one big bagel. Take turns flipping letters into the
+              middle, claim words, and steal your friends' words by adding letters. No mercy.
+            </p>
+          </div>
+        </div>
+
+        <form class="join-form" id="join-form" novalidate>
+          <label for="name-input">What should we call you?</label>
+          <div class="join-row">
+            <input
+              id="name-input"
+              name="name"
+              type="text"
+              maxlength="18"
+              placeholder="Your name"
+              autocomplete="nickname"
+              autocapitalize="words"
+              spellcheck="false"
+            />
+            <button class="primary-btn" id="join-btn" type="submit">Pull up a chair</button>
+          </div>
+          <p class="form-error" id="join-error" role="alert" hidden></p>
+          <p class="join-note">The host starts the round. You can join from any phone, tablet, or laptop.</p>
+        </form>
+
+        <div class="join-grid">
+          <div class="share-block">
+            <h2>Bring more people</h2>
+            <p class="muted">Same Wi-Fi. Then open this address:</p>
+            <div class="url-row">
+              <code id="join-url">Loading the table address...</code>
+              <button class="ghost-btn small" id="copy-join-url" type="button">Copy</button>
+            </div>
+            <img class="qr" id="join-qr" alt="QR code for the game address" width="190" height="190" hidden />
+            <p class="share-status" id="join-share-status"></p>
+          </div>
+          <div class="join-rules">
+            <h2>How it works</h2>
+            <ol>
+              <li><strong>Reveal.</strong> Tiles start face down. Take turns flipping one into the middle.</li>
+              <li><strong>Claim.</strong> Type any word using the face-up tiles in the middle.</li>
+              <li><strong>Steal.</strong> Type a word that extends any word on the table, including your own.</li>
+              <li><strong>Win.</strong> Your score is the letters in your words. Empty bagel = round over.</li>
+            </ol>
+            <p class="muted" id="join-dictionary">Scrabble dictionary loading...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Share / invite -->
+    <div class="overlay" id="share-overlay" role="dialog" aria-modal="true" aria-labelledby="share-title" hidden>
+      <div class="modal-card narrow">
+        <button class="close-btn" type="button" data-close="share-overlay" aria-label="Close invite">×</button>
+        <p class="eyebrow">Same room, same bagel</p>
+        <h2 id="share-title">Invite the table</h2>
+        <p class="muted">
+          Everyone needs to be on the same Wi-Fi or hotspot. Open this address on the other device:
+        </p>
+        <div class="url-row big">
+          <code id="share-url">Loading...</code>
+          <button class="ghost-btn" id="copy-share-url" type="button">Copy</button>
+        </div>
+        <img class="qr large" id="share-qr" alt="QR code for the game address" width="230" height="230" hidden />
+        <p class="share-status" id="share-status"></p>
+        <div class="network-list" id="network-list"></div>
+        <p class="fine-print">
+          If a phone cannot connect, check that the Wi-Fi is not a guest network that blocks devices from
+          talking to each other.
+        </p>
+      </div>
+    </div>
+
+    <!-- Rules -->
+    <div class="overlay" id="rules-overlay" role="dialog" aria-modal="true" aria-labelledby="rules-title" hidden>
+      <div class="modal-card">
+        <button class="close-btn" type="button" data-close="rules-overlay" aria-label="Close rules">×</button>
+        <p class="eyebrow">Everyword Bagel</p>
+        <h2 id="rules-title">How to play</h2>
+        <div class="rules-copy">
+          <p>
+            Every tile starts face down in the outer ring of the bagel. The middle is the floor: only
+            tiles that have been flipped face up there can be used. There are no turns for claiming —
+            the server is the referee, so the first valid claim wins.
+          </p>
+          <h3>Reveal</h3>
+          <p>
+            Only one player may flip a tile at a time, in the order you joined the table. On your turn,
+            tap any face-down tile to turn it face up in the middle. The turn to reveal then passes to
+            the next player. Stuck for letters? Reveal more.
+          </p>
+          <h3>Claim a word</h3>
+          <p>
+            Type a word that uses <strong>face-up</strong> tiles from the middle. The minimum is
+            <strong>4 letters</strong> by default (the host can change it to 3–7 in the lobby). The word
+            must be in the NWL2023 Scrabble dictionary. The tiles leave the middle and become yours.
+          </p>
+          <h3>Steal a word</h3>
+          <p>
+            Just type a word that keeps <em>every letter</em> of a word already on the table and adds
+            at least one face-up letter from the middle. Rearranging is expected, and you never have to
+            tap the old word first: the steal is detected as you type. You can extend anyone's word,
+            including your own.
+          </p>
+          <div class="example">
+            <span class="example-old">CATS</span>
+            <span class="plus">+</span>
+            <span class="example-tile">H</span>
+            <span class="arrow">→</span>
+            <span class="example-new">CHATS</span>
+          </div>
+          <p>
+            Their word disappears and yours takes its place. A successful steal also gives you the next
+            reveal, so you can flip another tile before the rotation continues. You can rebuild your own
+            words the same way, and steal a word that was itself stolen; the table gets delightfully
+            petty.
+          </p>
+          <h3>Scoring</h3>
+          <p>
+            Your score is the total number of letters in all your words. The round ends automatically
+            when every tile has been used, or when the host calls time. Most letters wins. Ties share the
+            bagel.
+          </p>
+          <h3>Good to know</h3>
+          <ul>
+            <li>Face-down letters are secret. They are never sent to the browser until revealed.</li>
+            <li>Words are checked against the bundled NWL2023 Scrabble list.</li>
+            <li>Duplicate words in different players' piles are allowed.</li>
+            <li>Refreshing a tab reconnects you if the browser kept the session.</li>
+            <li>The game state lives on the host's server; restarting the server starts fresh.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Round result -->
+    <div class="overlay" id="end-overlay" role="dialog" aria-modal="true" aria-labelledby="end-title" hidden>
+      <div class="modal-card end-card">
+        <div class="confetti" id="confetti" aria-hidden="true"></div>
+        <button class="close-btn" type="button" id="close-end" aria-label="View the table">×</button>
+        <p class="eyebrow">Round over</p>
+        <h2 id="end-title">The bagel is empty</h2>
+        <p class="end-sub" id="end-sub"></p>
+        <div class="ranking" id="end-ranking"></div>
+        <div class="end-actions" id="end-actions"></div>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="assertive" aria-atomic="false"></div>
+
+    <noscript>
+      <div class="overlay">
+        <div class="modal-card narrow">
+          <h2>Everyword Bagel needs JavaScript</h2>
+          <p>Enable JavaScript in this browser and reload the page.</p>
+        </div>
+      </div>
+    </noscript>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

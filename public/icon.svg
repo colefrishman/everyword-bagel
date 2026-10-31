@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="0%" r="120%">
+      <stop offset="0%" stop-color="#3a2417" />
+      <stop offset="100%" stop-color="#140d09" />
+    </radialGradient>
+    <linearGradient id="crust" x1="20%" y1="0%" x2="80%" y2="100%">
+      <stop offset="0%" stop-color="#f0b56d" />
+      <stop offset="55%" stop-color="#d68b45" />
+      <stop offset="100%" stop-color="#a5622c" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <circle cx="256" cy="264" r="176" fill="url(#crust)" stroke="#77401b" stroke-width="14" />
+  <circle cx="256" cy="264" r="180" fill="none" stroke="#fff2ce" stroke-opacity=".18" stroke-width="4" />
+  <circle cx="256" cy="264" r="68" fill="#140d09" stroke="#77401b" stroke-width="14" />
+  <path d="M118 190c26-58 78-96 140-104" fill="none" stroke="#f5c985" stroke-width="18"
+    stroke-linecap="round" opacity=".55" />
+  <g fill="#fff2ce">
+    <ellipse cx="146" cy="150" rx="7" ry="13" transform="rotate(-30 146 150)" />
+    <ellipse cx="196" cy="118" rx="7" ry="13" transform="rotate(-8 196 118)" />
+    <ellipse cx="256" cy="110" rx="7" ry="13" transform="rotate(16 256 110)" />
+    <ellipse cx="316" cy="122" rx="7" ry="13" transform="rotate(38 316 122)" />
+    <ellipse cx="366" cy="154" rx="7" ry="13" transform="rotate(68 366 154)" />
+    <ellipse cx="396" cy="212" rx="7" ry="13" transform="rotate(94 396 212)" />
+    <ellipse cx="388" cy="292" rx="7" ry="13" transform="rotate(128 388 292)" />
+    <ellipse cx="346" cy="358" rx="7" ry="13" transform="rotate(158 346 358)" />
+    <ellipse cx="272" cy="392" rx="7" ry="13" transform="rotate(178 272 392)" />
+    <ellipse cx="190" cy="382" rx="7" ry="13" transform="rotate(208 190 382)" />
+    <ellipse cx="130" cy="330" rx="7" ry="13" transform="rotate(238 130 330)" />
+    <ellipse cx="112" cy="252" rx="7" ry="13" transform="rotate(266 112 252)" />
+  </g>
+  <g transform="translate(256 264)">
+    <text x="0" y="26" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif"
+      font-size="94" font-weight="700" fill="#f2b45c" letter-spacing="-4">EW</text>
+  </g>
+</svg>
