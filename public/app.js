@@ -1632,8 +1632,10 @@ function updateShareInfo() {
   if (!info) return;
 
   const primary = info.primaryUrl || location.origin;
+  const hosted = Boolean(info.hosted);
   const hasLan = Array.isArray(info.addresses) && info.addresses.length > 0;
-  const shareable = hasLan || !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(primary);
+  const shareable =
+    hosted || hasLan || !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/i.test(primary);
 
   els.joinUrl.textContent = primary;
   els.shareUrl.textContent = primary;
@@ -1647,7 +1649,9 @@ function updateShareInfo() {
 
   if (shareable) {
     els.joinShareStatus.textContent = `${phaseNote} Scan the QR or open the address.`;
-    els.shareStatus.textContent = `${phaseNote} Everyone needs the same Wi-Fi.`;
+    els.shareStatus.textContent = hosted
+      ? `${phaseNote} Share this address with the other players.`
+      : `${phaseNote} Everyone needs the same Wi-Fi.`;
   } else {
     els.joinShareStatus.textContent =
       'No LAN address detected. Connect this computer to Wi-Fi or use a hotspot to invite phones.';

@@ -127,6 +127,19 @@ test('HTTP endpoints report health, info, and a QR code', async () => {
     assert.equal(infoBody.tileCount, 98);
     assert.ok(infoBody.primaryUrl.startsWith('http://'));
 
+    const proxied = await fetch(`http://127.0.0.1:${port}/api/info`, {
+      headers: {
+        'x-forwarded-proto': 'https',
+        'x-forwarded-host': 'everyword-bagel.onrender.com',
+      },
+    });
+    assert.equal(proxied.status, 200);
+    const proxiedBody = await proxied.json();
+    assert.equal(proxiedBody.primaryUrl, 'https://everyword-bagel.onrender.com');
+    assert.deepEqual(proxiedBody.urls, ['https://everyword-bagel.onrender.com']);
+    assert.deepEqual(proxiedBody.addresses, []);
+    assert.equal(proxiedBody.hosted, true);
+
     const qr = await fetch(`http://127.0.0.1:${port}/api/qr.svg`);
     assert.equal(qr.status, 200);
     assert.match(qr.headers.get('content-type'), /image\/svg\+xml/);

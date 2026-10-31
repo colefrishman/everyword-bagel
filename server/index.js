@@ -45,20 +45,33 @@ function isLoopbackHost(host = '') {
   return /^(localhost|127\.0\.0\.1|\[::1\]|::1)(:\d+)?$/i.test(host);
 }
 
+function firstHeaderValue(value) {
+  if (Array.isArray(value)) return value[0] ?? '';
+  if (typeof value !== 'string') return '';
+  return value.split(',')[0].trim();
+}
+
 /**
- * Work out the URL other devices in the room should open.
- * If the page was already opened through a LAN address, keep using it. If it
- * was opened on localhost, advertise the best LAN IPv4 address instead.
+ * Work out the URL other devices should open.
+ *
+ * Locally, the page is served over plain HTTP and we advertise the best LAN
+ * IPv4 address. Behind a reverse proxy (Render, Cloudflare, a tunnel) the
+ * public host and scheme come from the forwarded headers, and the container's
+ * private address is not reachable by players, so it is omitted.
  */
 export function buildJoinInfo(req, fallbackPort = DEFAULT_PORT) {
   const port = req?.socket?.localPort || fallbackPort;
-  const requestHost = req?.headers?.host || '';
-  const addresses = getLanAddresses();
-  const urls = addresses.map(({ address }) => `http://${address}:${port}`);
+  const forwardedProto = firstHeaderValue(req?.headers?.['x-forwarded-proto']);
+  const forwardedHost = firstHeaderValue(req?.headers?.['x-forwarded-host']);
+  const requestHost = forwardedHost || req?.headers?.host || '';
+  const hosted = Boolean(forwardedProto || forwardedHost);
+  const scheme = forwardedProto === 'https' || req?.socket?.encrypted ? 'https' : 'http';
+  const addresses = hosted ? [] : getLanAddresses();
+  const urls = addresses.map(({ address }) => `${scheme}://${address}:${port}`);
 
-  let primaryUrl = urls[0] ?? `http://localhost:${port}`;
+  let primaryUrl = urls[0] ?? `${scheme}://localhost:${port}`;
   if (requestHost && !isLoopbackHost(requestHost)) {
-    primaryUrl = `http://${requestHost}`;
+    primaryUrl = `${scheme}://${requestHost}`;
   }
 
   const uniqueUrls = [];
@@ -70,6 +83,7 @@ export function buildJoinInfo(req, fallbackPort = DEFAULT_PORT) {
     primaryUrl,
     urls: uniqueUrls,
     addresses,
+    hosted,
     port,
     host: requestHost || null,
   };
