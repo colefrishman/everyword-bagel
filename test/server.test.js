@@ -125,6 +125,8 @@ test('HTTP endpoints report health, info, and a QR code', async () => {
     const infoBody = await info.json();
     assert.equal(infoBody.dictionary.words, DICTIONARY.size);
     assert.equal(infoBody.tileCount, 98);
+    assert.equal(infoBody.minWordLength, 4);
+    assert.equal(infoBody.freeLetters, 3);
     assert.ok(infoBody.primaryUrl.startsWith('http://'));
 
     const proxied = await fetch(`http://127.0.0.1:${port}/api/info`, {
@@ -254,7 +256,7 @@ test('two clients join, reveal in turn, claim, and steal over WebSockets', async
     assert.equal(afterSteal.state.revealerId, bobWelcome.you);
     assert.equal(
       afterSteal.state.players.find((player) => player.name === 'Bob').score,
-      6,
+      3,
     );
 
     // Reveal Q, A, T, S, then submit a letter-valid non-word.

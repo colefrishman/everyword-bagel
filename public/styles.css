@@ -649,6 +649,65 @@ a {
   animation: tile-in 0.4s cubic-bezier(0.2, 0.9, 0.2, 1.2) backwards;
 }
 
+/* ---------- per-device display formats ---------- */
+
+body[data-hide-ring="true"] .tile.is-hidden,
+body[data-hide-ring="true"] .ring-guides {
+  display: none;
+}
+
+body[data-board-format="rows"] .board-shell {
+  width: min(100%, 680px);
+  aspect-ratio: auto;
+}
+
+body[data-board-format="rows"] .board {
+  height: auto;
+  min-height: 220px;
+  padding: 16px;
+  border-radius: 24px;
+}
+
+body[data-board-format="rows"] .board::before,
+body[data-board-format="rows"] .board::after,
+body[data-board-format="rows"] .ring-guides,
+body[data-board-format="rows"] .hole {
+  display: none;
+}
+
+body[data-board-format="rows"] .tiles {
+  position: static;
+  display: flex;
+  min-height: 188px;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 6px;
+}
+
+body[data-board-format="rows"] .tile {
+  position: static;
+  transform: none;
+}
+
+body[data-board-format="rows"] .tile:hover:not(:disabled),
+body[data-board-format="rows"] .tile:focus-visible {
+  transform: scale(1.09);
+}
+
+body[data-board-format="rows"] .tile:active {
+  transform: scale(0.96);
+}
+
+body[data-board-format="rows"] .tile.is-used {
+  transform: scale(1.09);
+}
+
+body[data-board-format="rows"] .tile.is-hidden {
+  display: none;
+}
+
 .hole {
   position: absolute;
   top: 50%;
@@ -1279,6 +1338,94 @@ button.word-chip:hover {
   color: var(--muted-2);
   font-size: 11px;
   white-space: nowrap;
+}
+
+.reveal-strip .reveal-action {
+  flex: 0 0 auto;
+  margin-left: auto;
+  min-height: 38px;
+  padding: 7px 13px;
+  font-size: 12px;
+}
+
+/* ---------- display settings ---------- */
+
+.display-settings {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.setting-row label {
+  color: var(--cream-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.setting-row select {
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  outline: none;
+  background: rgba(9, 6, 4, 0.55);
+  color: var(--cream);
+  font-size: 13px;
+}
+
+.setting-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px 13px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(0, 0, 0, 0.14);
+  cursor: pointer;
+}
+
+.setting-toggle input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--gold);
+  flex: 0 0 auto;
+}
+
+.setting-toggle span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.setting-toggle strong {
+  color: var(--cream-2);
+  font-size: 13px;
+}
+
+.setting-toggle small {
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.display-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 18px;
 }
 
 .spinner {
@@ -2101,6 +2248,11 @@ button.word-chip:hover {
   .reveal-strip {
     padding: 9px 12px;
     font-size: 12px;
+    flex-wrap: wrap;
+  }
+
+  .reveal-strip .reveal-action {
+    margin-left: 0;
   }
 
   .lobby-strip .primary-btn {

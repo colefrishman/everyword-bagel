@@ -83,6 +83,14 @@
             Invite
           </button>
           <button class="icon-btn" id="rules-btn" type="button" title="How to play">Rules</button>
+          <button
+            class="icon-btn"
+            id="display-btn"
+            type="button"
+            title="Display settings for this device"
+          >
+            Display
+          </button>
           <button class="icon-btn" id="sound-btn" type="button" aria-pressed="true" title="Toggle sound">
             Sound
           </button>
@@ -211,7 +219,7 @@
         <div class="join-grid">
           <div class="share-block">
             <h2>Bring more people</h2>
-            <p class="muted">Same Wi-Fi. Then open this address:</p>
+            <p class="muted">Open this address on the other device:</p>
             <div class="url-row">
               <code id="join-url">Loading the table address...</code>
               <button class="ghost-btn small" id="copy-join-url" type="button">Copy</button>
@@ -225,7 +233,9 @@
               <li><strong>Reveal.</strong> Tiles start face down. Take turns flipping one into the middle.</li>
               <li><strong>Claim.</strong> Type any word using the face-up tiles in the middle.</li>
               <li><strong>Steal.</strong> Type a word that extends any word on the table, including your own.</li>
-              <li><strong>Win.</strong> Your score is the letters in your words. Empty bagel = round over.</li>
+              <li>
+                <strong>Win.</strong> Letters after the third score a point. Empty bagel = round over.
+              </li>
             </ol>
             <p class="muted" id="join-dictionary">Scrabble dictionary loading...</p>
           </div>
@@ -239,9 +249,7 @@
         <button class="close-btn" type="button" data-close="share-overlay" aria-label="Close invite">×</button>
         <p class="eyebrow">Same room, same bagel</p>
         <h2 id="share-title">Invite the table</h2>
-        <p class="muted">
-          Everyone needs to be on the same Wi-Fi or hotspot. Open this address on the other device:
-        </p>
+        <p class="muted">Open this address on the other device:</p>
         <div class="url-row big">
           <code id="share-url">Loading...</code>
           <button class="ghost-btn" id="copy-share-url" type="button">Copy</button>
@@ -302,9 +310,14 @@
           </p>
           <h3>Scoring</h3>
           <p>
-            Your score is the total number of letters in all your words. The round ends automatically
-            when every tile has been used, or when the host calls time. Most letters wins. Ties share the
-            bagel.
+            The first three letters of a word are free. Every letter after that is worth
+            <strong>1 point</strong>: <em>CATS</em> scores 1, <em>ACTOR</em> scores 2, and
+            <em>BAGELS</em> scores 3. The host can change the free letters from 0 to 6 in the lobby;
+            at 0 every letter counts. Your score is the total points of all the words you hold.
+          </p>
+          <p>
+            The round ends automatically when every tile has been used, or when the host calls time.
+            Most points wins. Ties share the bagel.
           </p>
           <h3>Good to know</h3>
           <ul>
@@ -314,6 +327,63 @@
             <li>Refreshing a tab reconnects you if the browser kept the session.</li>
             <li>The game state lives on the host's server; restarting the server starts fresh.</li>
           </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Display settings (per device) -->
+    <div
+      class="overlay"
+      id="display-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="display-title"
+      hidden
+    >
+      <div class="modal-card narrow">
+        <button class="close-btn" type="button" data-close="display-overlay" aria-label="Close display settings">
+          ×
+        </button>
+        <p class="eyebrow">This device only</p>
+        <h2 id="display-title">Display</h2>
+        <p class="muted">
+          Display settings are saved in this browser and never change what other players see.
+        </p>
+
+        <div class="display-settings">
+          <div class="setting-row">
+            <label for="display-format">Board format</label>
+            <select id="display-format">
+              <option value="ring">Bagel ring</option>
+              <option value="rows">Rows (large letters)</option>
+            </select>
+          </div>
+
+          <div class="setting-row">
+            <label for="display-scale">Letter size</label>
+            <select id="display-scale">
+              <option value="1">Standard</option>
+              <option value="1.25">Large</option>
+              <option value="1.5">Extra large</option>
+            </select>
+          </div>
+
+          <label class="setting-toggle" for="display-hide-ring">
+            <input type="checkbox" id="display-hide-ring" />
+            <span>
+              <strong>Hide face-down tiles</strong>
+              <small>Removes the outer circle and gives the face-up letters more room.</small>
+            </span>
+          </label>
+
+          <p class="fine-print" id="display-reveal-note">
+            With the outer circle hidden, use the <strong>Reveal a tile</strong> button on your turn.
+          </p>
+        </div>
+
+        <div class="display-actions">
+          <button class="ghost-btn" id="display-reset" type="button">Reset to defaults</button>
+          <button class="primary-btn" type="button" data-close="display-overlay">Done</button>
         </div>
       </div>
     </div>

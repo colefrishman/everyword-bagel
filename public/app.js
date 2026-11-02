@@ -8,6 +8,7 @@ const els = {
   minLetters: $('min-letters'),
   inviteBtn: $('invite-btn'),
   rulesBtn: $('rules-btn'),
+  displayBtn: $('display-btn'),
   soundBtn: $('sound-btn'),
   connBadge: $('conn-badge'),
   connText: $('conn-text'),
@@ -58,6 +59,12 @@ const els = {
   networkList: $('network-list'),
 
   rulesOverlay: $('rules-overlay'),
+  displayOverlay: $('display-overlay'),
+  displayFormat: $('display-format'),
+  displayScale: $('display-scale'),
+  displayHideRing: $('display-hide-ring'),
+  displayReset: $('display-reset'),
+  displayRevealNote: $('display-reveal-note'),
   endOverlay: $('end-overlay'),
   endTitle: $('end-title'),
   endSub: $('end-sub'),
@@ -69,11 +76,24 @@ const els = {
   toasts: $('toasts'),
 };
 
-const OVERLAY_IDS = ['join-overlay', 'share-overlay', 'rules-overlay', 'end-overlay'];
+const OVERLAY_IDS = [
+  'join-overlay',
+  'share-overlay',
+  'rules-overlay',
+  'display-overlay',
+  'end-overlay',
+];
 const SESSION_NAME_KEY = 'ewb.name';
 const LOCAL_NAME_KEY = 'ewb.name';
 const TOKEN_MAP_KEY = 'ewb.tokens';
 const SOUND_KEY = 'ewb.sound';
+const DISPLAY_KEY = 'ewb.display';
+
+const DEFAULT_DISPLAY = Object.freeze({
+  format: 'ring',
+  scale: 1,
+  hideRing: false,
+});
 
 const app = {
   state: null,
@@ -91,16 +111,77 @@ const app = {
   stealWordId: null,
   sound: true,
   audio: null,
+  display: { ...DEFAULT_DISPLAY },
   info: null,
   infoPromise: null,
   infoFetchedAt: 0,
   tileEls: new Map(),
+  /** tile id -> stable slot in the face-up layout, so letters never jump. */
+  centerSlots: new Map(),
+  /** Face-up tile size. Only shrinks during a round, so claims do not rescale. */
+  poolTileSize: 0,
   renderedRound: null,
   layoutRaf: 0,
   lastPhase: null,
   endShownRound: null,
   endDismissedRound: null,
 };
+
+// ---------- per-device display settings ----------
+
+function loadDisplaySettings() {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(storageGet(DISPLAY_KEY) || 'null');
+  } catch {
+    parsed = null;
+  }
+  if (!parsed || typeof parsed !== 'object') return { ...DEFAULT_DISPLAY };
+
+  const scale = Number(parsed.scale);
+  return {
+    format: parsed.format === 'rows' ? 'rows' : 'ring',
+    scale: [1, 1.25, 1.5].includes(scale) ? scale : 1,
+    hideRing: Boolean(parsed.hideRing),
+  };
+}
+
+function saveDisplaySettings() {
+  storageSet(DISPLAY_KEY, JSON.stringify(app.display));
+}
+
+/** True when face-down tiles are not shown on this device. */
+function hidesOuterRing() {
+  return app.display.format === 'rows' || app.display.hideRing;
+}
+
+function applyDisplaySettings({ resetSlots = false } = {}) {
+  const display = app.display;
+  if (resetSlots) {
+    app.centerSlots.clear();
+    app.poolTileSize = 0;
+  }
+
+  document.body.dataset.boardFormat = display.format;
+  document.body.dataset.hideRing = display.hideRing ? 'true' : 'false';
+  document.body.dataset.letterScale = String(display.scale);
+  document.body.style.setProperty('--letter-scale', String(display.scale));
+
+  if (els.displayFormat) els.displayFormat.value = display.format;
+  if (els.displayScale) els.displayScale.value = String(display.scale);
+  if (els.displayHideRing) {
+    els.displayHideRing.checked = display.hideRing;
+    // Rows always hide the outer ring, so the separate toggle does not apply.
+    els.displayHideRing.disabled = display.format === 'rows';
+  }
+  if (els.displayRevealNote) els.displayRevealNote.hidden = !hidesOuterRing();
+
+  scheduleLayout();
+  if (app.state) {
+    renderBoard();
+    renderRevealStrip();
+  }
+}
 
 // ---------- tiny storage helpers ----------
 
@@ -178,6 +259,11 @@ function normalizeWord(value) {
     .slice(0, 32);
 }
 
+function pointsForWord(word) {
+  const free = Number(app.state?.freeLetters);
+  return Math.max(0, word.length - (Number.isFinite(free) ? free : 3));
+}
+
 function letterCounts(word) {
   const counts = Object.create(null);
   for (const letter of word) counts[letter] = (counts[letter] || 0) + 1;
@@ -241,8 +327,10 @@ const savedName = sanitizeName(storageGet(LOCAL_NAME_KEY) || '');
 
 app.name = sessionName;
 app.sound = storageGet(SOUND_KEY) !== 'off';
+app.display = loadDisplaySettings();
 
 els.nameInput.value = sessionName || savedName;
+applyDisplaySettings();
 updateSoundButton();
 bindEvents();
 updateBodyModal();
@@ -497,18 +585,19 @@ function handleAccepted(message) {
   els.stealBanner.hidden = true;
   els.submitBtn.textContent = 'Claim';
 
+  const points = message.word.points ?? 0;
   if (message.steal) {
     const self = Boolean(message.steal.self);
     toast(
       self
-        ? `Rebuilt ${message.steal.word} → ${message.word.word} (+${message.steal.added}). You reveal next.`
-        : `Stole ${message.steal.word} from ${message.steal.from} → ${message.word.word}. You reveal next.`,
+        ? `Rebuilt ${message.steal.word} → ${message.word.word} (+${points}). You reveal next.`
+        : `Stole ${message.steal.word} from ${message.steal.from} → ${message.word.word} (+${points}). You reveal next.`,
       'success',
       4200,
     );
     playSound('steal');
   } else {
-    toast(`Claimed ${message.word.word} (+${message.word.length})`, 'success', 2800);
+    toast(`Claimed ${message.word.word} (+${points})`, 'success', 2800);
     playSound('claim');
   }
 
@@ -586,8 +675,12 @@ function renderBoard() {
   if (app.renderedRound !== state.round) {
     app.renderedRound = state.round;
     app.tileEls.clear();
+    app.centerSlots.clear();
+    app.poolTileSize = 0;
     els.tiles.replaceChildren();
   }
+
+  assignCenterSlots(state.center);
 
   const bagIds = new Set(state.bag.map((tile) => tile.id));
   const centerIds = new Set(state.center.map((tile) => tile.id));
@@ -662,14 +755,54 @@ function bagFractions(count) {
   return [0.8, 0.9, 1];
 }
 
-function poolFractions(count) {
-  if (count <= 0) return [];
-  if (count === 1) return [0];
-  if (count <= 6) return [0.3];
-  if (count <= 14) return [0.3, 0.46];
-  if (count <= 26) return [0.26, 0.4, 0.54];
-  if (count <= 44) return [0.24, 0.36, 0.48, 0.6];
-  return [0.22, 0.32, 0.42, 0.52, 0.62];
+// Keep face-up rings inside the bagel hole; the outer ring tops out at 0.72
+// so a full middle never collides with the face-down ring at 0.8–1.0.
+const POOL_RING_FRACTIONS = [0.3, 0.44, 0.58, 0.72];
+const POOL_TILE_GAP = 1.12;
+
+/**
+ * Give every face-up tile a fixed slot the first time it appears. Existing
+ * letters keep their slot when a new tile is revealed, so the middle never
+ * reshuffles under the player's finger. Slots freed by a claimed word are
+ * reused by the next reveal.
+ */
+function assignCenterSlots(center) {
+  const ids = new Set(center.map((tile) => tile.id));
+  for (const id of [...app.centerSlots.keys()]) {
+    if (!ids.has(id)) app.centerSlots.delete(id);
+  }
+
+  const used = new Set(app.centerSlots.values());
+  for (const tile of center) {
+    if (app.centerSlots.has(tile.id)) continue;
+    let slot = 0;
+    while (used.has(slot)) slot += 1;
+    app.centerSlots.set(tile.id, slot);
+    used.add(slot);
+  }
+}
+
+function poolRingCapacities(rMax, tileSize) {
+  return POOL_RING_FRACTIONS.map((fraction) =>
+    Math.max(1, Math.floor((Math.PI * 2 * rMax * fraction) / (tileSize * POOL_TILE_GAP))),
+  );
+}
+
+function poolSlotPosition(slot, capacities, rMax, size) {
+  let index = slot;
+  let ring = 0;
+  while (ring < capacities.length - 1 && index >= capacities[ring]) {
+    index -= capacities[ring];
+    ring += 1;
+  }
+  const count = capacities[ring];
+  const angle =
+    -Math.PI / 2 + ring * 0.22 + ((index + 0.5) * (Math.PI * 2)) / Math.max(1, count);
+  const radius = rMax * POOL_RING_FRACTIONS[ring];
+  return {
+    left: size / 2 + Math.cos(angle) * radius,
+    top: size / 2 + Math.sin(angle) * radius,
+  };
 }
 
 function clamp(value, min, max) {
@@ -691,7 +824,6 @@ function layoutTiles() {
 
   const state = app.state;
   const bagBase = clamp(size * 0.058, 18, 36);
-  const poolBase = clamp(size * 0.055, 16, 34);
   const rMax = size / 2 - Math.max(12, bagBase / 2 + 4);
 
   const bagFracs = bagFractions(state.bag.length);
@@ -704,15 +836,12 @@ function layoutTiles() {
     ringStagger: 0.18,
   });
 
-  const poolFracs = poolFractions(state.center.length);
-  layoutGroup(state.center, poolFracs, {
-    size,
-    rMax,
-    baseSize: poolBase,
-    minSize: 12,
-    angleOffset: -Math.PI / 2 + 0.2,
-    ringStagger: 0.35,
-  });
+  if (app.display.format === 'rows') {
+    layoutPoolRows(state.center, size);
+  } else {
+    const poolBase = clamp(size * 0.064 * (app.display.scale || 1), 22, 58);
+    layoutPool(state.center, { size, rMax, baseSize: poolBase });
+  }
 
   const guides = [...els.ringGuides.querySelectorAll('span')];
   guides.forEach((guide, index) => {
@@ -725,6 +854,48 @@ function layoutTiles() {
     guide.style.width = `${rMax * fraction * 2}px`;
     guide.style.height = `${rMax * fraction * 2}px`;
   });
+}
+
+/**
+ * Place face-up tiles by stable slot. The slot-to-position map depends only on
+ * the board size and tile size, never on how many tiles are face up, so adding
+ * a letter leaves every existing letter exactly where it was.
+ */
+function layoutPool(center, { size, rMax, baseSize }) {
+  if (center.length === 0) return;
+
+  let tileSize =
+    app.poolTileSize > 0 ? Math.min(baseSize, app.poolTileSize) : baseSize;
+  let capacities = poolRingCapacities(rMax, tileSize);
+  const capacity = () => capacities.reduce((sum, value) => sum + value, 0);
+  while (tileSize > 10 && capacity() < center.length) {
+    tileSize -= 1;
+    capacities = poolRingCapacities(rMax, tileSize);
+  }
+  app.poolTileSize = tileSize;
+
+  for (const tile of center) {
+    const node = app.tileEls.get(tile.id);
+    if (!node) continue;
+    const slot = app.centerSlots.get(tile.id) ?? 0;
+    const position = poolSlotPosition(slot, capacities, rMax, size);
+    node.style.setProperty('--tile-size', `${tileSize}px`);
+    node.style.left = `${position.left}px`;
+    node.style.top = `${position.top}px`;
+  }
+}
+
+/** Rows format: face-up letters flow in a centered grid at a comfortable size. */
+function layoutPoolRows(center, size) {
+  if (center.length === 0) return;
+  const tileSize = Math.round(clamp(size * 0.072 * (app.display.scale || 1), 30, 64));
+  for (const tile of center) {
+    const node = app.tileEls.get(tile.id);
+    if (!node) continue;
+    node.style.setProperty('--tile-size', `${tileSize}px`);
+    node.style.left = '';
+    node.style.top = '';
+  }
 }
 
 /**
@@ -786,6 +957,7 @@ function layoutGroup(tiles, fractions, { size, rMax, baseSize, minSize, angleOff
 
 function renderRevealStrip() {
   const state = app.state;
+  for (const old of els.revealStrip.querySelectorAll('.reveal-action')) old.remove();
   if (!state || state.phase !== 'playing') {
     els.revealStrip.hidden = true;
     els.board.classList.remove('is-my-reveal');
@@ -802,8 +974,15 @@ function renderRevealStrip() {
   if (mine) {
     els.revealText.append(
       make('strong', null, 'Your turn to reveal.'),
-      document.createTextNode(' Tap a face-down tile.'),
+      document.createTextNode(
+        hidesOuterRing() ? ' The face-down tiles are hidden on this device.' : ' Tap a face-down tile.',
+      ),
     );
+    if (hidesOuterRing() && state.bag.length > 0) {
+      els.revealStrip.append(
+        makeButton('Reveal a tile', 'primary-btn small reveal-action', revealRandomTile),
+      );
+    }
   } else {
     els.revealText.append(
       make('strong', null, revealer?.name ?? 'Another player'),
@@ -843,8 +1022,8 @@ function renderPlayers() {
     if (!player.connected) head.append(make('span', 'p-tag offline', 'offline'));
 
     const score = make('span', 'player-score');
-    score.append(document.createTextNode(String(player.score)), make('small', null, 'letters'));
-    score.title = `${player.score} letters in ${player.wordCount} ${plural(player.wordCount, 'word')}`;
+    score.append(document.createTextNode(String(player.score)), make('small', null, 'pts'));
+    score.title = `${player.score} points from ${player.wordCount} ${plural(player.wordCount, 'word')}`;
     head.append(score);
 
     if (iAmHost && state.phase === 'lobby' && !player.connected && player.id !== app.me) {
@@ -978,11 +1157,12 @@ function renderHostPanel() {
         'p',
         'host-copy',
         iAmHost
-          ? 'Everyone here? Set the minimum and open the bagel.'
+          ? 'Everyone here? Set the rules and open the bagel.'
           : `${host?.name ?? 'The host'} can start once everyone is ready.`,
       ),
     );
     appendMinSetting(fragment, state, iAmHost);
+    appendScoreSetting(fragment, state, iAmHost);
     if (iAmHost) {
       const actions = make('div', 'host-actions');
       actions.append(makeButton('Start round', 'primary-btn', startRound));
@@ -1011,6 +1191,7 @@ function renderHostPanel() {
       ),
     );
     appendMinSetting(fragment, state, false);
+    appendScoreSetting(fragment, state, false);
     if (iAmHost) {
       const actions = make('div', 'host-actions');
       const end = makeButton('End round', 'ghost-btn danger', endRound);
@@ -1028,6 +1209,7 @@ function renderHostPanel() {
       make('p', 'host-copy', 'Round over. Check the results, then run it back.'),
     );
     appendMinSetting(fragment, state, iAmHost);
+    appendScoreSetting(fragment, state, iAmHost);
 
     const actions = make('div', 'host-actions');
     actions.append(
@@ -1077,6 +1259,32 @@ function appendMinSetting(fragment, state, canEdit) {
     row.append(select);
   } else {
     row.append(make('span', 'muted', `${state.minWordLength} letters`));
+  }
+  fragment.append(row);
+}
+
+function appendScoreSetting(fragment, state, canEdit) {
+  const row = make('div', 'host-setting');
+  const label = make('label', null, 'Points start after');
+  label.htmlFor = 'free-select';
+  row.append(label);
+
+  const free = Number.isFinite(Number(state.freeLetters)) ? Number(state.freeLetters) : 3;
+  if (canEdit) {
+    const select = make('select');
+    select.id = 'free-select';
+    for (const value of [0, 1, 2, 3, 4, 5, 6]) {
+      const option = make('option', null, value === 0 ? 'Every letter' : `${value} letters`);
+      option.value = String(value);
+      select.append(option);
+    }
+    select.value = String(free);
+    select.addEventListener('change', () =>
+      send({ type: 'config', freeLetters: Number(select.value) }),
+    );
+    row.append(select);
+  } else {
+    row.append(make('span', 'muted', free === 0 ? 'Every letter' : `After ${free} letters`));
   }
   fragment.append(row);
 }
@@ -1212,6 +1420,7 @@ function updatePreview() {
 
   const missing = markRequiredTiles(required);
   const longEnough = word.length >= state.minWordLength;
+  const points = pointsForWord(word);
 
   if (missing.length > 0) {
     setHint(`The middle is missing ${describeMissing(missing)}.`, 'is-bad');
@@ -1232,11 +1441,19 @@ function updatePreview() {
 
   setHint(
     target
-      ? `${action} ${target.entry.word} → ${word}. Uses ${extra} ${plural(extra, 'letter')} from the middle.`
-      : `Uses ${word.length} ${plural(word.length, 'tile')} from the middle.`,
+      ? `${action} ${target.entry.word} → ${word}. Adds ${extra} ${plural(
+          extra,
+          'letter',
+        )}; the word scores ${points} ${plural(points, 'point')}.`
+      : `Uses ${word.length} ${plural(
+          word.length,
+          'tile',
+        )} from the middle; the word scores ${points} ${plural(points, 'point')}.`,
     'is-good',
   );
-  els.tilePreview.textContent = target ? `${extra} + target` : `${word.length} tiles`;
+  els.tilePreview.textContent = target
+    ? `${extra} new · +${points} pts`
+    : `${word.length} tiles · +${points} pts`;
   els.submitBtn.disabled = app.pending;
   app.previewReady = true;
 }
@@ -1324,6 +1541,23 @@ function onTileClick(tileId) {
   els.wordInput.focus();
   updatePreview();
   playSound('tick');
+}
+
+/** Reveal a random hidden tile, for devices that hide the outer ring. */
+function revealRandomTile() {
+  const state = app.state;
+  if (!state || state.phase !== 'playing' || app.pending) return;
+  if (state.revealerId !== app.me) {
+    const revealer = state.players.find((player) => player.id === state.revealerId);
+    toast(`${revealer?.name ?? 'Another player'} has the reveal right now.`, 'error', 2200);
+    return;
+  }
+  if (state.bag.length === 0) {
+    toast('There are no face-down tiles left.', 'error', 2200);
+    return;
+  }
+  const tile = state.bag[Math.floor(Math.random() * state.bag.length)];
+  if (send({ type: 'reveal', tileId: tile.id })) playSound('tick');
 }
 
 function onWordInput() {
@@ -1488,8 +1722,8 @@ function renderEndContent() {
         : `${winners.map((player) => player.name).join(' & ')} split the bagel`;
 
   els.endSub.textContent =
-    topScore > 0
-      ? `${topScore} letters · ${totalWords} ${plural(totalWords, 'word')} on the table`
+    totalWords > 0
+      ? `${topScore} points · ${totalWords} ${plural(totalWords, 'word')} on the table`
       : 'No words made it to the table. Bold strategy.';
 
   const ranking = document.createDocumentFragment();
@@ -1523,7 +1757,7 @@ function renderEndContent() {
     row.append(info);
 
     const score = make('span', 'rank-score');
-    score.append(document.createTextNode(String(player.score)), make('small', null, 'letters'));
+    score.append(document.createTextNode(String(player.score)), make('small', null, 'pts'));
     row.append(score);
     ranking.append(row);
   });
@@ -1862,7 +2096,32 @@ function bindEvents() {
 
   els.inviteBtn.addEventListener('click', openShare);
   els.rulesBtn.addEventListener('click', () => openOverlay('rules-overlay', '#rules-overlay .close-btn'));
+  els.displayBtn.addEventListener('click', () =>
+    openOverlay('display-overlay', '#display-format'),
+  );
   els.soundBtn.addEventListener('click', toggleSound);
+
+  els.displayFormat.addEventListener('change', () => {
+    app.display.format = els.displayFormat.value === 'rows' ? 'rows' : 'ring';
+    saveDisplaySettings();
+    applyDisplaySettings({ resetSlots: true });
+  });
+  els.displayScale.addEventListener('change', () => {
+    const scale = Number(els.displayScale.value);
+    app.display.scale = [1, 1.25, 1.5].includes(scale) ? scale : 1;
+    saveDisplaySettings();
+    applyDisplaySettings({ resetSlots: true });
+  });
+  els.displayHideRing.addEventListener('change', () => {
+    app.display.hideRing = els.displayHideRing.checked;
+    saveDisplaySettings();
+    applyDisplaySettings({ resetSlots: true });
+  });
+  els.displayReset.addEventListener('click', () => {
+    app.display = { ...DEFAULT_DISPLAY };
+    saveDisplaySettings();
+    applyDisplaySettings({ resetSlots: true });
+  });
 
   for (const button of document.querySelectorAll('[data-close]')) {
     button.addEventListener('click', () => closeOverlay(button.dataset.close));
@@ -1870,7 +2129,7 @@ function bindEvents() {
 
   els.closeEnd.addEventListener('click', dismissEnd);
 
-  for (const id of ['share-overlay', 'rules-overlay']) {
+  for (const id of ['share-overlay', 'rules-overlay', 'display-overlay']) {
     const overlay = $(id);
     overlay.addEventListener('click', (event) => {
       if (event.target === overlay) closeOverlay(id);
@@ -1910,6 +2169,10 @@ function onGlobalKey(event) {
     }
     if (!els.rulesOverlay.hidden) {
       closeOverlay('rules-overlay');
+      return;
+    }
+    if (!els.displayOverlay.hidden) {
+      closeOverlay('display-overlay');
       return;
     }
     if (!els.endOverlay.hidden) {

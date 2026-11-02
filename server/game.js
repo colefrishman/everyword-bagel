@@ -49,6 +49,15 @@ export const MIN_WORD_LENGTH = 3;
 export const MAX_WORD_LENGTH = 7;
 export const DEFAULT_MIN_WORD_LENGTH = 4;
 
+/**
+ * Scoring starts after this many letters. With the default of 3, CATS is worth
+ * 1 point and ACTOR is worth 2. The host can change it, because some tables
+ * prefer every letter to count.
+ */
+export const MIN_FREE_LETTERS = 0;
+export const MAX_FREE_LETTERS = 6;
+export const DEFAULT_FREE_LETTERS = 3;
+
 const MAX_NAME_LENGTH = 18;
 const MAX_WORD_INPUT = 32;
 const LOG_LIMIT = 60;
@@ -66,6 +75,18 @@ export function clampMinWordLength(value) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isFinite(parsed)) return DEFAULT_MIN_WORD_LENGTH;
   return Math.min(MAX_WORD_LENGTH, Math.max(MIN_WORD_LENGTH, parsed));
+}
+
+export function clampFreeLetters(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return DEFAULT_FREE_LETTERS;
+  return Math.min(MAX_FREE_LETTERS, Math.max(MIN_FREE_LETTERS, parsed));
+}
+
+export function describeScoring(freeLetters) {
+  return freeLetters <= 0
+    ? 'every letter scores 1 point'
+    : `letters after the first ${freeLetters} score 1 point each`;
 }
 
 export function letterCounts(word) {
@@ -119,11 +140,12 @@ function describeMissing(letters) {
     .join(', ');
 }
 
-function publicWord(word) {
+function publicWord(word, freeLetters = DEFAULT_FREE_LETTERS) {
   return {
     id: word.id,
     word: word.word,
     length: word.word.length,
+    points: Math.max(0, word.word.length - freeLetters),
     at: word.at,
     stolenFrom: word.stolenFrom ?? null,
     previous: word.previous ?? null,
@@ -145,6 +167,7 @@ export class AnagramsGame {
     dictionary,
     dictionaryName = 'NWL2023',
     minWordLength = DEFAULT_MIN_WORD_LENGTH,
+    freeLetters = DEFAULT_FREE_LETTERS,
     tileLetters = null,
     shuffleTiles = true,
     random = Math.random,
@@ -163,6 +186,7 @@ export class AnagramsGame {
     this.dictionary = dict;
     this.dictionaryName = dictionaryName;
     this.minWordLength = clampMinWordLength(minWordLength);
+    this.freeLetters = clampFreeLetters(freeLetters);
     this.initialTileLetters = letters;
     this.shuffleTiles = shuffleTiles;
     this.random = random;
@@ -286,6 +310,18 @@ export class AnagramsGame {
     return { ok: true, minWordLength: next };
   }
 
+  setFreeLetters(playerId, value) {
+    if (!this.isHost(playerId)) return fail('Only the host can change the rules.');
+    if (this.phase === 'playing') {
+      return fail('Finish the round before changing how points are scored.');
+    }
+    const next = clampFreeLetters(value);
+    if (next === this.freeLetters) return { ok: true, freeLetters: next };
+    this.freeLetters = next;
+    this.addLog('config', `Scoring updated: ${describeScoring(next)}.`);
+    return { ok: true, freeLetters: next };
+  }
+
   start(playerId) {
     if (!this.isHost(playerId)) return fail('Only the host can start the round.');
     if (this.phase === 'playing') return fail('A round is already running.');
@@ -306,9 +342,11 @@ export class AnagramsGame {
     const starter = this.players.get(this.revealerId);
     this.addLog(
       'start',
-      `The bagel is open: ${this.minWordLength}+ letters, ${connected} ${
-        connected === 1 ? 'player' : 'players'
-      }.${starter ? ` ${starter.name} reveals first.` : ''}`,
+      `The bagel is open: ${this.minWordLength}+ letters; ${describeScoring(
+        this.freeLetters,
+      )}, ${connected} ${connected === 1 ? 'player' : 'players'}.${
+        starter ? ` ${starter.name} reveals first.` : ''
+      }`,
     );
     return { ok: true };
   }
@@ -329,9 +367,9 @@ export class AnagramsGame {
     const starter = this.players.get(this.revealerId);
     this.addLog(
       'start',
-      `A fresh bagel hits the table: ${this.minWordLength}+ letters.${
-        starter ? ` ${starter.name} reveals first.` : ''
-      }`,
+      `A fresh bagel hits the table: ${this.minWordLength}+ letters; ${describeScoring(
+        this.freeLetters,
+      )}.${starter ? ` ${starter.name} reveals first.` : ''}`,
     );
     return { ok: true };
   }
@@ -458,16 +496,17 @@ export class AnagramsGame {
     };
     player.words.push(entry);
 
+    const points = this.pointsFor(word);
     if (target && victim) {
       const added = countTotal(required);
       // A steal wins the right to reveal next, overriding the normal rotation.
       this.revealerId = player.id;
       const message = selfSteal
-        ? `${player.name} rebuilt ${target.word} as ${word} (+${added}). ${player.name} reveals next.`
-        : `${player.name} stole ${target.word} from ${victim.name} and built ${word} (+${added}). ${player.name} reveals next.`;
+        ? `${player.name} rebuilt ${target.word} as ${word} (+${points}, ${added} new). ${player.name} reveals next.`
+        : `${player.name} stole ${target.word} from ${victim.name} and built ${word} (+${points}, ${added} new). ${player.name} reveals next.`;
       this.addLog('steal', message);
     } else {
-      this.addLog('claim', `${player.name} claimed ${word} (+${word.length}).`);
+      this.addLog('claim', `${player.name} claimed ${word} (+${points}).`);
     }
 
     let ended = false;
@@ -478,7 +517,8 @@ export class AnagramsGame {
 
     return {
       ok: true,
-      word: publicWord(entry),
+      word: publicWord(entry, this.freeLetters),
+      points,
       steal:
         target && victim
           ? {
@@ -590,20 +630,22 @@ export class AnagramsGame {
     this.endedAt = Date.now();
     const ranked = this.rankedPlayers();
     const topScore = ranked[0]?.score ?? 0;
-    this.winnerIds =
-      topScore > 0 ? ranked.filter((row) => row.score === topScore).map((row) => row.player.id) : [];
+    const anyWords = ranked.some((row) => row.wordCount > 0);
+    this.winnerIds = anyWords
+      ? ranked.filter((row) => row.score === topScore).map((row) => row.player.id)
+      : [];
 
     if (note) this.addLog('end', note);
 
-    if (topScore === 0) {
+    if (!anyWords) {
       this.addLog('end', 'Round over. No words made it to the table.');
     } else if (this.winnerIds.length > 1) {
       const names = this.winnerIds.map((id) => this.players.get(id)?.name).filter(Boolean);
       const last = names.pop();
-      this.addLog('end', `Round over. ${names.join(', ')} and ${last} tie with ${topScore} letters.`);
+      this.addLog('end', `Round over. ${names.join(', ')} and ${last} tie with ${topScore} points.`);
     } else {
       const winner = this.players.get(this.winnerIds[0]);
-      this.addLog('end', `Round over. ${winner.name} wins with ${topScore} letters.`);
+      this.addLog('end', `Round over. ${winner.name} wins with ${topScore} points.`);
     }
   }
 
@@ -611,8 +653,12 @@ export class AnagramsGame {
     return Boolean(playerId) && this.hostId === playerId;
   }
 
+  pointsFor(word) {
+    return Math.max(0, String(word).length - this.freeLetters);
+  }
+
   scoreOf(player) {
-    return player.words.reduce((sum, entry) => sum + entry.word.length, 0);
+    return player.words.reduce((sum, entry) => sum + this.pointsFor(entry.word), 0);
   }
 
   longestOf(player) {
@@ -651,7 +697,7 @@ export class AnagramsGame {
         wordCount: player.words.length,
         longest: this.longestOf(player),
         rank: rankById.get(player.id) ?? 0,
-        words: player.words.map(publicWord),
+        words: player.words.map((entry) => publicWord(entry, this.freeLetters)),
         joinedAt: player.joinedAt,
       }))
       .sort((a, b) => a.joinedAt - b.joinedAt);
@@ -659,6 +705,7 @@ export class AnagramsGame {
     return {
       phase: this.phase,
       minWordLength: this.minWordLength,
+      freeLetters: this.freeLetters,
       center: this.center.map((tile) => ({ id: tile.id, letter: tile.letter })),
       // Face-down tiles are sent without their letters so the browser cannot
       // peek. Only the count and the stable ids travel over the wire.

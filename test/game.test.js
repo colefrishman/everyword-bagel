@@ -5,6 +5,7 @@ import {
   AnagramsGame,
   TILE_DISTRIBUTION,
   buildTileLetters,
+  clampFreeLetters,
   clampMinWordLength,
   letterCounts,
   sanitizeName,
@@ -38,12 +39,19 @@ const DICTIONARY = new Set([
   'WORDS',
 ]);
 
-function newGame({ letters, dictionary = DICTIONARY, min = 4, shuffleTiles = false } = {}) {
+function newGame({
+  letters,
+  dictionary = DICTIONARY,
+  min = 4,
+  free = 3,
+  shuffleTiles = false,
+} = {}) {
   return new AnagramsGame({
     dictionary,
     dictionaryName: 'TEST',
     tileLetters: letters,
     minWordLength: min,
+    freeLetters: free,
     shuffleTiles,
   });
 }
@@ -63,8 +71,8 @@ function revealLetters(game, letters) {
   }
 }
 
-function playingGame({ letters, dictionary = DICTIONARY, min = 4 } = {}) {
-  const game = newGame({ letters, dictionary, min });
+function playingGame({ letters, dictionary = DICTIONARY, min = 4, free = 3 } = {}) {
+  const game = newGame({ letters, dictionary, min, free });
   const alice = game.addPlayer('Alice');
   const bob = game.addPlayer('Bob');
   const start = game.start(alice.id);
@@ -95,6 +103,14 @@ test('minimum word length is clamped to 3..7', () => {
   assert.equal(clampMinWordLength(99), 7);
   assert.equal(clampMinWordLength('5'), 5);
   assert.equal(clampMinWordLength('nope'), 4);
+});
+
+test('free letters are clamped to 0..6', () => {
+  assert.equal(clampFreeLetters(-2), 0);
+  assert.equal(clampFreeLetters(3), 3);
+  assert.equal(clampFreeLetters(99), 6);
+  assert.equal(clampFreeLetters('2'), 2);
+  assert.equal(clampFreeLetters('nope'), 3);
 });
 
 test('a new game starts in the lobby with an empty center', () => {
@@ -267,7 +283,7 @@ test('a player can rebuild their own word by typing the larger word', () => {
   assert.equal(rebuilt.steal.self, true);
   assert.equal(rebuilt.steal.from, 'Alice');
   assert.deepEqual(alice.words.map((entry) => entry.word), ['CHATS']);
-  assert.equal(game.scoreOf(alice), 5);
+  assert.equal(game.scoreOf(alice), 2);
   assert.equal(game.revealerId, alice.id);
 });
 
@@ -287,19 +303,44 @@ test('a word the middle can build is claimed instead of stolen', () => {
   assert.deepEqual(bob.words.map((entry) => entry.word), ['CATS']);
 });
 
-test('valid word claims the right tiles and scores letters', () => {
+test('valid word claims the right tiles and scores only letters past the third', () => {
   const { game, alice } = playingGame({ letters: ['C', 'A', 'T', 'S', 'H', 'E', 'L', 'L', 'O'] });
   const result = game.submit(alice.id, 'cats');
   assert.equal(result.ok, true);
   assert.equal(result.word.word, 'CATS');
+  assert.equal(result.word.points, 1);
+  assert.equal(result.points, 1);
   assert.equal(game.phase, 'playing');
   assert.deepEqual(
     game.center.map((tile) => tile.letter).sort(),
     ['E', 'H', 'L', 'L', 'O'],
   );
   assert.equal(alice.words.length, 1);
+  assert.equal(game.scoreOf(alice), 1);
+  const state = game.getState(alice.id);
+  const me = state.players.find((p) => p.id === alice.id);
+  assert.equal(me.score, 1);
+  assert.equal(me.words[0].points, 1);
+  assert.equal(state.freeLetters, 3);
+});
+
+test('the host can change the scoring offset, including every letter counting', () => {
+  const { game, alice } = playingGame({
+    letters: ['C', 'A', 'T', 'S', 'H', 'E', 'L', 'L', 'O'],
+    free: 0,
+  });
+  assert.equal(game.submit(alice.id, 'CATS').word.points, 4);
   assert.equal(game.scoreOf(alice), 4);
-  assert.equal(game.getState(alice.id).players.find((p) => p.id === alice.id).score, 4);
+
+  const game2 = newGame({ letters: ['C', 'A', 'T', 'S'] });
+  const host = game2.addPlayer('Host');
+  assert.equal(game2.setFreeLetters(host.id, 3).freeLetters, 3);
+  assert.equal(game2.freeLetters, 3);
+  assert.equal(game2.setFreeLetters(host.id, 99).freeLetters, 6);
+  assert.equal(game2.start(host.id).ok, true);
+  const locked = game2.setFreeLetters(host.id, 2);
+  assert.equal(locked.ok, false);
+  assert.match(locked.error, /Finish the round/);
 });
 
 test('words shorter than the configured minimum are rejected', () => {
@@ -359,7 +400,7 @@ test('a player can steal an opponent word by adding a center letter', () => {
   assert.equal(bob.words.length, 1);
   assert.equal(bob.words[0].word, 'CHATS');
   assert.equal(game.scoreOf(alice), 0);
-  assert.equal(game.scoreOf(bob), 5);
+  assert.equal(game.scoreOf(bob), 2);
   assert.deepEqual(
     game.center.map((tile) => tile.letter).sort(),
     ['E', 'I', 'L', 'S'],
@@ -396,7 +437,7 @@ test('a player can steal their own word', () => {
   assert.equal(result.steal.self, true);
   assert.equal(result.steal.from, 'Alice');
   assert.deepEqual(alice.words.map((entry) => entry.word), ['CHATS']);
-  assert.equal(game.scoreOf(alice), 5);
+  assert.equal(game.scoreOf(alice), 2);
 });
 
 test('stealing a word that no longer exists fails cleanly', () => {
@@ -423,6 +464,15 @@ test('the round ends automatically when the last center tile is claimed', () => 
   assert.ok(game.getState(bob.id).endedAt);
 });
 
+test('a round of zero-point words still crowns a winner', () => {
+  const { game, alice, bob } = playingGame({ letters: ['C', 'A', 'T', 'S'], free: 6 });
+  const result = game.submit(alice.id, 'CATS');
+  assert.equal(result.ok, true);
+  assert.equal(result.word.points, 0);
+  assert.equal(game.phase, 'ended');
+  assert.deepEqual(game.winnerIds, [alice.id, bob.id]);
+});
+
 test('host can end a round and restart with cleared words', () => {
   const { game, alice, bob } = playingGame({
     letters: ['C', 'A', 'T', 'S', 'H', 'I', 'L', 'E', 'S'],
@@ -447,6 +497,7 @@ test('non-hosts cannot start, end, configure, or reset', () => {
   const { game, bob } = playingGame({ letters: ['C', 'A', 'T', 'S'] });
   assert.equal(game.end(bob.id).ok, false);
   assert.equal(game.setMinWordLength(bob.id, 5).ok, false);
+  assert.equal(game.setFreeLetters(bob.id, 2).ok, false);
   assert.equal(game.reset(bob.id).ok, false);
   assert.equal(game.restart(bob.id).ok, false);
 });

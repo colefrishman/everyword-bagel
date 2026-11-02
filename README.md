@@ -38,6 +38,65 @@ the same address plus a QR code.
 > on one laptop or phone is the reliable cross-device option, and it works in
 > every modern browser with no install on the other devices.
 
+## Deploy on Render
+
+A hosted copy runs at **https://everyword-bagel.onrender.com/**. Guests open the
+link or scan the QR code in the app; no LAN, firewall rule, or browser setting is
+involved, and the connection uses HTTPS/WSS so stock Chrome is happy.
+
+`render.yaml` describes the service:
+
+```yaml
+services:
+  - type: web
+    name: everyword-bagel
+    runtime: node
+    plan: free
+    branch: main
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+```
+
+To deploy your own copy:
+
+1. Push the repo to GitHub.
+2. In Render, choose **New + → Blueprint** and select the repository. Render
+   reads `render.yaml` and creates the service. If the repository is not listed,
+   grant Render access under **GitHub → Settings → Applications → Render**, or
+   use **New + → Web Service → Public Git repository** and enter the build and
+   start commands manually.
+3. Wait for the build, then open the `https://<service>.onrender.com` URL.
+
+Render's free plan spins the service down after 15 minutes without inbound
+traffic and takes about a minute to wake. Open the link a minute or two before
+people join. Game state is in memory: a restart or a long idle period resets the
+room to the lobby. The app reconnects automatically, but the round starts over.
+While players are connected and exchanging WebSocket messages, the service stays
+awake.
+
+Behind Render's proxy the invite link and QR code use `X-Forwarded-Host` and
+`X-Forwarded-Proto`, so they point at the public `https://` address rather than
+the container's private `http://…:10000` address.
+
+## Display settings
+
+The **Display** button in the top bar opens per-device settings:
+
+- **Board format** — the classic bagel ring, or **Rows** for large letters in a
+  centered grid.
+- **Letter size** — Standard, Large, or Extra large.
+- **Hide face-down tiles** — removes the outer circle. On your turn, use the
+  **Reveal a tile** button instead of tapping a hidden tile (the letters are
+  face down, so any tile is equivalent).
+
+Choices are stored in `localStorage` on that device only and never change what
+other players see.
+
 ## How to play
 
 - **Reveal** — face-down tiles form the outer ring. Only one player may flip at a
@@ -51,9 +110,11 @@ the same address plus a QR code.
   the steal is detected as you type. Rearranging is expected: `CATS` + `H` →
   `CHATS`. You can extend anyone's word, including your own. A steal also hands
   you the next reveal, so you flip another tile before the rotation continues.
-- **Score** — your score is the total number of letters in all the words you
-  own. The round ends when every tile has been used or the host calls time. Most
-  letters wins; ties share the win.
+- **Score** — the first three letters of a word are free; every letter after
+  that is **1 point** (`CATS` = 1, `ACTOR` = 2, `BAGELS` = 3). The host can set
+  the free letters to 0–6 in the lobby; at 0 every letter counts. Your score is
+  the total points of all the words you own. The round ends when every tile has
+  been used or the host calls time. Most points wins; ties share the win.
 - Duplicate words in different players' piles are allowed, and a word can be
   stolen repeatedly.
 
@@ -80,6 +141,7 @@ English dictionary: expect obscure two-letter words and no brand names.
 | --- | --- |
 | Port | `PORT=4000 npm start` |
 | Minimum word length | Host control in the lobby (3–7), default 4 |
+| Free letters before scoring | Host control in the lobby (0–6), default 3 |
 | Dictionary | Replace `data/scrabble-words.txt` (one uppercase word per line) |
 
 On Windows PowerShell, set the port with `$env:PORT=4000; npm start`.
@@ -134,7 +196,7 @@ data/                  bundled NWL2023 headwords
 
 ```sh
 npm run dev     # restart the server on file changes
-npm test        # 25 unit tests + 4 HTTP/WebSocket integration tests
+npm test        # unit + HTTP/WebSocket integration tests
 ```
 
 There is no client build step: the browser loads `public/` directly. The client

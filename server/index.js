@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import QRCode from 'qrcode';
 import { WebSocket, WebSocketServer } from 'ws';
 
-import { DEFAULT_MIN_WORD_LENGTH, AnagramsGame } from './game.js';
+import { DEFAULT_FREE_LETTERS, DEFAULT_MIN_WORD_LENGTH, AnagramsGame } from './game.js';
 import { loadDictionary } from './dictionary.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -107,12 +107,14 @@ export function createAppServer({
   dictionary = null,
   wordsFile = WORDS_FILE,
   minWordLength = DEFAULT_MIN_WORD_LENGTH,
+  freeLetters = DEFAULT_FREE_LETTERS,
 } = {}) {
   const words = dictionary ?? loadDictionary(wordsFile);
   const game = new AnagramsGame({
     dictionary: words,
     dictionaryName: 'NWL2023',
     minWordLength,
+    freeLetters,
   });
 
   const app = express();
@@ -145,6 +147,7 @@ export function createAppServer({
       ...info,
       phase: game.phase,
       minWordLength: game.minWordLength,
+      freeLetters: game.freeLetters,
       dictionary: { name: 'NWL2023', words: words.size },
       tileCount: game.initialTileLetters.length,
     });
@@ -282,7 +285,13 @@ export function createAppServer({
         }
 
         case 'config': {
-          const result = game.setMinWordLength(ws.playerId, message.minWordLength);
+          let result = { ok: true };
+          if (message.minWordLength !== undefined) {
+            result = game.setMinWordLength(ws.playerId, message.minWordLength);
+          }
+          if (result.ok && message.freeLetters !== undefined) {
+            result = game.setFreeLetters(ws.playerId, message.freeLetters);
+          }
           if (!result.ok) sendError(ws, result.error);
           else broadcastState();
           break;
